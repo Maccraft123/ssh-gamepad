@@ -82,7 +82,7 @@ void NETRETROPAD_CORE_PREFIX(retro_init)(void)
 
 	frame_buf = (uint16_t*)calloc(320 * 240, sizeof(uint16_t));
 
-	ssh = popen("ssh macc24@192.168.0.103", "w");
+	ssh = popen("ssh macc24@192.168.0.51", "w");
 	fprintf(ssh, "~/uinput-joystick-demo/fw-input\n");
 
 	if (frame_buf)
