@@ -1,59 +1,17 @@
 STATIC_LINKING := 0
 AR             := ar
 
-ifeq ($(platform),)
 platform = unix
-ifeq ($(shell uname -a),)
-   platform = win
-else ifneq ($(findstring MINGW,$(shell uname -a)),)
-   platform = win
-else ifneq ($(findstring Darwin,$(shell uname -a)),)
-   platform = osx
-else ifneq ($(findstring win,$(shell uname -a)),)
-   platform = win
-endif
-endif
-
-# system platform
 system_platform = unix
-ifeq ($(shell uname -a),)
-	EXE_EXT = .exe
-	system_platform = win
-else ifneq ($(findstring Darwin,$(shell uname -a)),)
-	system_platform = osx
-	arch = intel
-ifeq ($(shell uname -p),powerpc)
-	arch = ppc
-endif
-else ifneq ($(findstring MINGW,$(shell uname -a)),)
-	system_platform = win
-endif
-
-TARGET_NAME := button_test
+TARGET_NAME := gamepad
 LIBM		= -lm
 
-ifeq ($(ARCHFLAGS),)
-ifeq ($(archs),ppc)
-   ARCHFLAGS = -arch ppc -arch ppc64
-else
-   ARCHFLAGS = -arch i386 -arch x86_64
-endif
-endif
-
-ifeq ($(platform), osx)
-ifndef ($(NOUNIVERSAL))
-   CFLAGS += $(ARCHFLAGS)
-   LFLAGS += $(ARCHFLAGS)
-endif
-endif
-
-ifeq ($(STATIC_LINKING), 1)
-EXT := a
-endif
+CC=arm-linux-gnueabihf-gcc
+CFLAGS=-DNO_SSH -DKILL_RETROARCH
 
 ifeq ($(platform), unix)
 	EXT ?= so
-   TARGET := $(TARGET_NAME)_libretro.$(EXT)
+   TARGET := $(TARGET_NAME).$(EXT)
    fpic := -fPIC
    SHARED := -shared -Wl,--version-script=link.T -Wl,--no-undefined
 else ifeq ($(platform), linux-portable)

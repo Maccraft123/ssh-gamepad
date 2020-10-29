@@ -9,8 +9,7 @@
 
 #include "libretro.h"
 #include "remotepad.h"
-
-#define NETRETROPAD_CORE_PREFIX(s) s
+#include "charset.h"
 
 #define DESC_NUM_PORTS(desc) ((desc)->port_max - (desc)->port_min + 1)
 #define DESC_NUM_INDICES(desc) ((desc)->index_max - (desc)->index_min + 1)
@@ -24,8 +23,13 @@
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 
+#ifndef NO_SSH
 FILE *ssh;
+#endif
 
+uint8_t category = 0;
+uint8_t category_old = 20;
+bool en_sw;
 
 struct descriptor {
 	int device;
@@ -40,13 +44,13 @@ struct descriptor {
 
 static struct retro_log_callback logger;
 
-static retro_log_printf_t NETRETROPAD_CORE_PREFIX(log_cb);
-static retro_video_refresh_t NETRETROPAD_CORE_PREFIX(video_cb);
-static retro_audio_sample_t NETRETROPAD_CORE_PREFIX(audio_cb);
-static retro_audio_sample_batch_t NETRETROPAD_CORE_PREFIX(audio_batch_cb);
-static retro_environment_t NETRETROPAD_CORE_PREFIX(environ_cb);
-static retro_input_poll_t NETRETROPAD_CORE_PREFIX(input_poll_cb);
-static retro_input_state_t NETRETROPAD_CORE_PREFIX(input_state_cb);
+static retro_log_printf_t log_cb;
+static retro_video_refresh_t video_cb;
+static retro_audio_sample_t audio_cb;
+static retro_audio_sample_batch_t audio_batch_cb;
+static retro_environment_t environ_cb;
+static retro_input_poll_t input_poll_cb;
+static retro_input_state_t input_state_cb;
 
 static uint16_t *frame_buf;
 
@@ -75,36 +79,66 @@ static struct descriptor *descriptors[] = {
 	&analog
 };
 
-void NETRETROPAD_CORE_PREFIX(retro_init)(void)
+
+
+void draw_pixel(int x, int y)
+{
+	frame_buf[x + y * 320] = 0xffff;
+}
+
+void draw_box(int sx, int sy, int ex, int ey)
+{
+	int savey = sy;
+	for (; sx <= ex; sx++) 
+		for (sy = savey; sy <= ey; sy++)
+			draw_pixel(sx, sy);
+}
+
+void draw_char(int x, int y, char c)
+{
+	int savey = y;
+	for (int i = 0; i <= 5; i++)
+		for (int j = 0; j <= 5; j++)
+			if (char_a[i][j] == 1)
+				draw_pixel(x + i, y + j);
+}
+
+void draw_pad(void)
+{
+	uint16_t *pixel = frame_buf + 49 * 320 + 32;
+
+	for (unsigned rle = 0; rle < sizeof(body); )
+	{
+		uint16_t color = 0;
+
+		for (unsigned runs = body[rle++]; runs > 0; runs--)
+		{
+			for (unsigned count = body[rle++]; count > 0; count--)
+			{
+				*pixel++ = color;
+			}
+
+			color = 0x4208 - color;
+		}
+
+		pixel += 65;
+	}
+}
+
+void retro_init(void)
 {
 	struct descriptor *desc;
 	int size;
 
 	frame_buf = (uint16_t*)calloc(320 * 240, sizeof(uint16_t));
 
-	ssh = popen("ssh macc24@192.168.0.51", "w");
+#ifndef NO_SSH
+	ssh = popen("ssh -o StrictHostKeyChecking=no macc24@192.168.0.51", "w");
 	fprintf(ssh, "~/uinput-joystick-demo/fw-input\n");
-
+#endif
 	if (frame_buf)
 	{
-		uint16_t *pixel = frame_buf + 49 * 320 + 32;
-
-		for (unsigned rle = 0; rle < sizeof(body); )
-		{
-			uint16_t color = 0;
-
-			for (unsigned runs = body[rle++]; runs > 0; runs--)
-			{
-				for (unsigned count = body[rle++]; count > 0; count--)
-				{
-					*pixel++ = color;
-				}
-
-				color = 0x4208 - color;
-			}
-
-			pixel += 65;
-		}
+		draw_pad();
 	}
 
 	/* Allocate descriptor values */
@@ -113,36 +147,42 @@ void NETRETROPAD_CORE_PREFIX(retro_init)(void)
 		size = DESC_NUM_PORTS(desc) * DESC_NUM_INDICES(desc) * DESC_NUM_IDS(desc);
 		descriptors[i]->value = (uint16_t*)calloc(size, sizeof(uint16_t));
 	}
+
+	charset['a'] = &char_a;
 }
 
-void NETRETROPAD_CORE_PREFIX(retro_deinit)(void)
+void retro_deinit(void)
 {
 	if (frame_buf)
 		free(frame_buf);
 	frame_buf = NULL;
+#ifndef NO_SSH
 	fprintf(ssh, "4096\n");
 	pclose(ssh);
-
+#endif
 	/* Free descriptor values */
 	for (long unsigned int i = 0; i < ARRAY_SIZE(descriptors); i++) {
 		free(descriptors[i]->value);
 		descriptors[i]->value = NULL;
 	}
+#ifdef KILL_RETROARCH
+	system("pkill retroarch");
+#endif
 }
 
-unsigned NETRETROPAD_CORE_PREFIX(retro_api_version)(void)
+unsigned retro_api_version(void)
 {
 	return RETRO_API_VERSION;
 }
 
-void NETRETROPAD_CORE_PREFIX(retro_set_controller_port_device)(
+void retro_set_controller_port_device(
 		unsigned port, unsigned device)
 {
 	(void)port;
 	(void)device;
 }
 
-void NETRETROPAD_CORE_PREFIX(retro_get_system_info)(
+void retro_get_system_info(
 		struct retro_system_info *info)
 {
 	memset(info, 0, sizeof(*info));
@@ -152,7 +192,7 @@ void NETRETROPAD_CORE_PREFIX(retro_get_system_info)(
 	info->valid_extensions = "";
 }
 
-void NETRETROPAD_CORE_PREFIX(retro_get_system_av_info)(
+void retro_get_system_av_info(
 		struct retro_system_av_info *info)
 {
 	info->timing.fps = 60.0;
@@ -165,7 +205,7 @@ void NETRETROPAD_CORE_PREFIX(retro_get_system_av_info)(
 	info->geometry.aspect_ratio = 4.0 / 3.0;
 }
 
-void NETRETROPAD_CORE_PREFIX(retro_set_environment)(retro_environment_t cb)
+void retro_set_environment(retro_environment_t cb)
 {
 	static const struct retro_variable vars[] = {
 		{ NULL, NULL },
@@ -174,47 +214,47 @@ void NETRETROPAD_CORE_PREFIX(retro_set_environment)(retro_environment_t cb)
 	cb(RETRO_ENVIRONMENT_SET_VARIABLES, (void*)vars);
 
 
-	NETRETROPAD_CORE_PREFIX(environ_cb) = cb;
+	environ_cb = cb;
 	bool no_content = true;
 	cb(RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME, &no_content);
 
-	NETRETROPAD_CORE_PREFIX(environ_cb)(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &fmt);
+	environ_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &fmt);
 
 	if (cb(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &logger))
-		NETRETROPAD_CORE_PREFIX(log_cb) = logger.log;
+		log_cb = logger.log;
 }
 
 static void netretropad_check_variables(void)
 {
 }
 
-void NETRETROPAD_CORE_PREFIX(retro_set_audio_sample)(retro_audio_sample_t cb)
+void retro_set_audio_sample(retro_audio_sample_t cb)
 {
-	NETRETROPAD_CORE_PREFIX(audio_cb) = cb;
+	audio_cb = cb;
 }
 
-void NETRETROPAD_CORE_PREFIX(retro_set_audio_sample_batch)(
+void retro_set_audio_sample_batch(
 		retro_audio_sample_batch_t cb)
 {
-	NETRETROPAD_CORE_PREFIX(audio_batch_cb) = cb;
+	audio_batch_cb = cb;
 }
 
-void NETRETROPAD_CORE_PREFIX(retro_set_input_poll)(retro_input_poll_t cb)
+void retro_set_input_poll(retro_input_poll_t cb)
 {
-	NETRETROPAD_CORE_PREFIX(input_poll_cb) = cb;
+	input_poll_cb = cb;
 }
 
-void NETRETROPAD_CORE_PREFIX(retro_set_input_state)(retro_input_state_t cb)
+void retro_set_input_state(retro_input_state_t cb)
 {
-	NETRETROPAD_CORE_PREFIX(input_state_cb) = cb;
+	input_state_cb = cb;
 }
 
-void NETRETROPAD_CORE_PREFIX(retro_set_video_refresh)(retro_video_refresh_t cb)
+void retro_set_video_refresh(retro_video_refresh_t cb)
 {
-	NETRETROPAD_CORE_PREFIX(video_cb) = cb;
+	video_cb = cb;
 }
 
-void NETRETROPAD_CORE_PREFIX(retro_reset)(void)
+void retro_reset(void)
 {}
 
 static void retropad_update_input(void)
@@ -229,7 +269,7 @@ static void retropad_update_input(void)
 	long unsigned int i;
 
 	/* Poll input */
-	NETRETROPAD_CORE_PREFIX(input_poll_cb)();
+	input_poll_cb();
 
 	/* Parse descriptors */
 	for (i = 0; i < ARRAY_SIZE(descriptors); i++) {
@@ -247,7 +287,7 @@ static void retropad_update_input(void)
 					old = desc->value[offset];
 
 					/* Get new state */
-					state = NETRETROPAD_CORE_PREFIX(input_state_cb)(
+					state = input_state_cb(
 							port,
 							desc->device,
 							index,
@@ -263,7 +303,7 @@ static void retropad_update_input(void)
 	}
 }
 
-void NETRETROPAD_CORE_PREFIX(retro_run)(void)
+void retro_run(void)
 {
 	unsigned rle, runs;
 	uint16_t *pixel		= NULL;
@@ -274,66 +314,105 @@ void NETRETROPAD_CORE_PREFIX(retro_run)(void)
 	retropad_update_input();
 
 	/* Combine RetroPad input states into one value */
-	for (i = joypad.id_min; i <= joypad.id_max; i++) {
+	for (i = joypad.id_min; i <= joypad.id_max; i++)
+	{
 		offset = DESC_OFFSET(&joypad, 0, 0, i);
 		if (joypad.value[offset])
 			input_state |= 1 << i;
 	}
-	printf("%d         \r", input_state);
+	printf("%d         \r", category);
 	fflush(stdout);
 
+#ifndef NO_SSH
 	fprintf(ssh, "%i\n", input_state);
 	fflush(ssh);
+#endif
+
+	// hotkeys
+	if ((input_state & 4096) && en_sw) // L2
+	{
+		for (int y = 1; y < 239; y++)
+			for (int x = 1; x < 319; x++)
+				frame_buf[x + y * 320] = 0x000000;
+		category--;
+		en_sw = false;
+	}
+	if ((input_state & 8192) && en_sw) // R2
+	{
+		for (int y = 1; y < 239; y++)
+			for (int x = 1; x < 319; x++)
+				frame_buf[x + y * 320] = 0x000000;
+		category++;
+		en_sw = false;
+	}
+
+	if (!en_sw) // ran everytime category has changed
+	{
+		switch(category)
+		{
+			case 0: draw_pad(); break;
+			default: draw_box(10, 10, 50 + category*10, 50); break;
+		}
+	}
+
+	draw_box(10, 10, 50, 50);
+	draw_char(60, 60, 'a');
+
+	if (!((input_state & 4096) || (input_state & 8192)))
+		en_sw = true;
 
 	pixel = frame_buf + 49 * 320 + 32;
 
-	for (rle = 0; rle < sizeof(retropad_buttons); )
+	if (category == 0)
 	{
-		char paint = 0;
-
-		for (runs = retropad_buttons[rle++]; runs > 0; runs--)
+		for (rle = 0; rle < sizeof(retropad_buttons); )
 		{
-			unsigned button = paint ? 1 << retropad_buttons[rle++] : 0;
+			char paint = 0;
 
-			if (paint)
+			for (runs = retropad_buttons[rle++]; runs > 0; runs--)
 			{
-				unsigned count;
-				uint16_t color = (input_state & button) ? 0x0500 : 0xffff;
+				unsigned button = paint ? 1 << retropad_buttons[rle++] : 0;
 
-				for (count = retropad_buttons[rle++]; count > 0; count--)
-					*pixel++ = color;
+				if (paint)
+				{
+					unsigned count;
+					uint16_t color = (input_state & button) ? 0x0500 : 0xffff;
+
+					for (count = retropad_buttons[rle++]; count > 0; count--)
+						*pixel++ = color;
+				}
+				else
+					pixel += retropad_buttons[rle++];
+
+				paint = !paint;
 			}
-			else
-				pixel += retropad_buttons[rle++];
 
-			paint = !paint;
+			pixel += 65;
 		}
-
-		pixel += 65;
 	}
 
 
-	NETRETROPAD_CORE_PREFIX(video_cb)(frame_buf, 320, 240, 640);
+	video_cb(frame_buf, 320, 240, 640);
 
 	retro_sleep(4);
 }
 
-bool NETRETROPAD_CORE_PREFIX(retro_load_game)(const struct retro_game_info *info)
+bool retro_load_game(const struct retro_game_info *info)
 {
 	netretropad_check_variables();
 
 	return true;
 }
 
-void NETRETROPAD_CORE_PREFIX(retro_unload_game)(void)
+void retro_unload_game(void)
 {}
 
-unsigned NETRETROPAD_CORE_PREFIX(retro_get_region)(void)
+unsigned retro_get_region(void)
 {
 	return RETRO_REGION_NTSC;
 }
 
-bool NETRETROPAD_CORE_PREFIX(retro_load_game_special)(unsigned type,
+bool retro_load_game_special(unsigned type,
 		const struct retro_game_info *info, size_t num)
 {
 	(void)type;
@@ -342,19 +421,19 @@ bool NETRETROPAD_CORE_PREFIX(retro_load_game_special)(unsigned type,
 	return false;
 }
 
-size_t NETRETROPAD_CORE_PREFIX(retro_serialize_size)(void)
+size_t retro_serialize_size(void)
 {
 	return 0;
 }
 
-bool NETRETROPAD_CORE_PREFIX(retro_serialize)(void *data, size_t size)
+bool retro_serialize(void *data, size_t size)
 {
 	(void)data;
 	(void)size;
 	return false;
 }
 
-bool NETRETROPAD_CORE_PREFIX(retro_unserialize)(const void *data,
+bool retro_unserialize(const void *data,
 		size_t size)
 {
 	(void)data;
@@ -362,22 +441,22 @@ bool NETRETROPAD_CORE_PREFIX(retro_unserialize)(const void *data,
 	return false;
 }
 
-void *NETRETROPAD_CORE_PREFIX(retro_get_memory_data)(unsigned id)
+void *retro_get_memory_data(unsigned id)
 {
 	(void)id;
 	return NULL;
 }
 
-size_t NETRETROPAD_CORE_PREFIX(retro_get_memory_size)(unsigned id)
+size_t retro_get_memory_size(unsigned id)
 {
 	(void)id;
 	return 0;
 }
 
-void NETRETROPAD_CORE_PREFIX(retro_cheat_reset)(void)
+void retro_cheat_reset(void)
 {}
 
-void NETRETROPAD_CORE_PREFIX(retro_cheat_set)(unsigned idx,
+void retro_cheat_set(unsigned idx,
 		bool enabled, const char *code)
 {
 	(void)idx;
