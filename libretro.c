@@ -97,10 +97,10 @@ void draw_box(int sx, int sy, int ex, int ey)
 void draw_char(int x, int y, char c)
 {
 	int savey = y;
-	for (int i = 0; i <= 5; i++)
-		for (int j = 0; j <= 5; j++)
-			if (char_a[i][j] == 1)
-				draw_pixel(x + i, y + j);
+	for (int i = 0; i <= 4; i++)
+		for (int j = 0; j <= 4; j++)
+			if (charset[c][i][j] == 1)
+				draw_pixel(x + j, y + i);
 }
 
 void draw_pad(void)
@@ -147,8 +147,7 @@ void retro_init(void)
 		size = DESC_NUM_PORTS(desc) * DESC_NUM_INDICES(desc) * DESC_NUM_IDS(desc);
 		descriptors[i]->value = (uint16_t*)calloc(size, sizeof(uint16_t));
 	}
-
-	charset['a'] = &char_a;
+	init_char();
 }
 
 void retro_deinit(void)
