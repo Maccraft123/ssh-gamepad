@@ -110,7 +110,7 @@ void retro_init(void)
 	frame_buf = (uint16_t*)calloc(320 * 240, sizeof(uint16_t));
 
 #ifndef NO_SSH
-	ssh = popen("ssh -o StrictHostKeyChecking=no macc24@192.168.0.51", "w");
+	ssh = popen("ssh -C -o StrictHostKeyChecking=no macc24@192.168.0.51", "w");
 	fprintf(ssh, "~/uinput-joystick-demo/fw-input\n");
 #endif
 	if (frame_buf)
