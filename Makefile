@@ -7,7 +7,8 @@ TARGET_NAME := gamepad
 LIBM		= -lm
 
 CC=arm-linux-gnueabihf-gcc
-CFLAGS=-DNO_SSH -DKILL_RETROARCH
+#CFLAGS=-DNO_SSH -DKILL_RETROARCH
+CFLAGS=-DKILL_RETROARCH
 
 ifeq ($(platform), unix)
 	EXT ?= so

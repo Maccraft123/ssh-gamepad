@@ -80,29 +80,6 @@ static struct descriptor *descriptors[] = {
 };
 
 
-
-void draw_pixel(int x, int y)
-{
-	frame_buf[x + y * 320] = 0xffff;
-}
-
-void draw_box(int sx, int sy, int ex, int ey)
-{
-	int savey = sy;
-	for (; sx <= ex; sx++) 
-		for (sy = savey; sy <= ey; sy++)
-			draw_pixel(sx, sy);
-}
-
-void draw_char(int x, int y, char c)
-{
-	int savey = y;
-	for (int i = 0; i <= 4; i++)
-		for (int j = 0; j <= 4; j++)
-			if (charset[c][i][j] == 1)
-				draw_pixel(x + j, y + i);
-}
-
 void draw_pad(void)
 {
 	uint16_t *pixel = frame_buf + 49 * 320 + 32;
@@ -147,7 +124,6 @@ void retro_init(void)
 		size = DESC_NUM_PORTS(desc) * DESC_NUM_INDICES(desc) * DESC_NUM_IDS(desc);
 		descriptors[i]->value = (uint16_t*)calloc(size, sizeof(uint16_t));
 	}
-	init_char();
 }
 
 void retro_deinit(void)
@@ -156,7 +132,7 @@ void retro_deinit(void)
 		free(frame_buf);
 	frame_buf = NULL;
 #ifndef NO_SSH
-	fprintf(ssh, "4096\n");
+	fprintf(ssh, "123456 0 0\n");
 	pclose(ssh);
 #endif
 	/* Free descriptor values */
@@ -186,7 +162,7 @@ void retro_get_system_info(
 {
 	memset(info, 0, sizeof(*info));
 	info->library_name	  = "SSH Gamepad";
-	info->library_version  = "0.01";
+	info->library_version  = "1.0.0";
 	info->need_fullpath	  = false;
 	info->valid_extensions = "";
 }
@@ -319,46 +295,15 @@ void retro_run(void)
 		if (joypad.value[offset])
 			input_state |= 1 << i;
 	}
-	printf("%d         \r", category);
+
+	//fprintf("%i", (signed short)analog.value[DESC_OFFSET(&analog, 0, 0, RETRO_DEVICE_ID_ANALOG_X)]);
+	//fprintf("%i", (signed short)analog.value[DESC_OFFSET(&analog, 0, 0, RETRO_DEVICE_ID_ANALOG_Y)]);
 	fflush(stdout);
 
 #ifndef NO_SSH
-	fprintf(ssh, "%i\n", input_state);
+	fprintf(ssh, "%i %i %i\n", input_state, (signed short)analog.value[DESC_OFFSET(&analog, 0, 0, RETRO_DEVICE_ID_ANALOG_X)], (signed short)analog.value[DESC_OFFSET(&analog, 0, 0, RETRO_DEVICE_ID_ANALOG_Y)]);
 	fflush(ssh);
 #endif
-
-	// hotkeys
-	if ((input_state & 4096) && en_sw) // L2
-	{
-		for (int y = 1; y < 239; y++)
-			for (int x = 1; x < 319; x++)
-				frame_buf[x + y * 320] = 0x000000;
-		category--;
-		en_sw = false;
-	}
-	if ((input_state & 8192) && en_sw) // R2
-	{
-		for (int y = 1; y < 239; y++)
-			for (int x = 1; x < 319; x++)
-				frame_buf[x + y * 320] = 0x000000;
-		category++;
-		en_sw = false;
-	}
-
-	if (!en_sw) // ran everytime category has changed
-	{
-		switch(category)
-		{
-			case 0: draw_pad(); break;
-			default: draw_box(10, 10, 50 + category*10, 50); break;
-		}
-	}
-
-	draw_box(10, 10, 50, 50);
-	draw_char(60, 60, 'a');
-
-	if (!((input_state & 4096) || (input_state & 8192)))
-		en_sw = true;
 
 	pixel = frame_buf + 49 * 320 + 32;
 
